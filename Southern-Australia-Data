@@ -1,0 +1,259 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "authorship_tag": "ABX9TyMqx4hWG8mFZSvVgLqlndkm",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/Joydas2003/Southern-Australia-Data-Collection/blob/main/Southern-Australia-Data\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 1,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "8LktsRNKGE2W",
+        "outputId": "8292a4b4-99f3-4755-fabe-f80c2f8c20db"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "  Installing build dependencies ... \u001b[?25l\u001b[?25hdone\n",
+            "  Getting requirements to build wheel ... \u001b[?25l\u001b[?25hdone\n",
+            "  Preparing metadata (pyproject.toml) ... \u001b[?25l\u001b[?25hdone\n",
+            "  Building wheel for feather-format (pyproject.toml) ... \u001b[?25l\u001b[?25hdone\n"
+          ]
+        }
+      ],
+      "source": [
+        "!pip -q install nemosis\n",
+        "\n",
+        "import os\n",
+        "import pandas as pd\n",
+        "from nemosis import dynamic_data_compiler\n",
+        "\n",
+        "START = \"2022/01/01 00:00:00\"\n",
+        "END = \"2026/08/31 23:55:00\"\n",
+        "\n",
+        "CACHE = \"/content/aemo_cache\"\n",
+        "OUT = \"/content/aemo_csv\"\n",
+        "\n",
+        "os.makedirs(CACHE, exist_ok=True)\n",
+        "os.makedirs(OUT, exist_ok=True)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "price = dynamic_data_compiler(\n",
+        "    START, END,\n",
+        "    \"DISPATCHPRICE\",\n",
+        "    CACHE,\n",
+        "    select_columns=[\n",
+        "        \"SETTLEMENTDATE\",\n",
+        "        \"REGIONID\",\n",
+        "        \"INTERVENTION\",\n",
+        "        \"RRP\"\n",
+        "    ],\n",
+        "    filter_cols=[\"REGIONID\", \"INTERVENTION\"],\n",
+        "    filter_values=([\"SA1\"], [0]),\n",
+        "    fformat=\"csv\",\n",
+        "    keep_csv=True\n",
+        ")\n",
+        "\n",
+        "price[\"SETTLEMENTDATE\"] = pd.to_datetime(\n",
+        "    price[\"SETTLEMENTDATE\"]\n",
+        ")\n",
+        "\n",
+        "price = price.sort_values(\"SETTLEMENTDATE\")\n",
+        "\n",
+        "price_hourly = (\n",
+        "    price.set_index(\"SETTLEMENTDATE\")\n",
+        "    .groupby(\"REGIONID\")[\"RRP\"]\n",
+        "    .resample(\"1h\", label=\"right\", closed=\"right\")\n",
+        "    .mean()\n",
+        "    .reset_index()\n",
+        ")\n",
+        "\n",
+        "price_hourly.to_csv(\n",
+        "    f\"{OUT}/SA_RRP_hourly.csv\", index=False\n",
+        ")\n",
+        "\n",
+        "print(price_hourly.head())\n",
+        "print(\"Rows:\", len(price_hourly))"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "qOT9wPmMGW1F",
+        "outputId": "c0cef875-badd-45bd-e761-9b85b57979a3"
+      },
+      "execution_count": 2,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "  REGIONID      SETTLEMENTDATE         RRP\n",
+            "0      SA1 2022-01-01 01:00:00  122.725283\n",
+            "1      SA1 2022-01-01 02:00:00   94.019100\n",
+            "2      SA1 2022-01-01 03:00:00   99.826461\n",
+            "3      SA1 2022-01-01 04:00:00  128.494938\n",
+            "4      SA1 2022-01-01 05:00:00  146.689167\n",
+            "Rows: 40896\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "demand = dynamic_data_compiler(\n",
+        "    START, END,\n",
+        "    \"DISPATCHREGIONSUM\",\n",
+        "    CACHE,\n",
+        "    select_columns=[\n",
+        "        \"SETTLEMENTDATE\",\n",
+        "        \"REGIONID\",\n",
+        "        \"TOTALDEMAND\"\n",
+        "    ],\n",
+        "    filter_cols=[\"REGIONID\"],\n",
+        "    filter_values=([\"SA1\"],),\n",
+        "    fformat=\"csv\",\n",
+        "    keep_csv=True\n",
+        ")\n",
+        "\n",
+        "demand[\"SETTLEMENTDATE\"] = pd.to_datetime(\n",
+        "    demand[\"SETTLEMENTDATE\"]\n",
+        ")\n",
+        "\n",
+        "demand_hourly = (\n",
+        "    demand.set_index(\"SETTLEMENTDATE\")\n",
+        "    .groupby(\"REGIONID\")[\"TOTALDEMAND\"]\n",
+        "    .resample(\"1h\", label=\"right\", closed=\"right\")\n",
+        "    .mean()\n",
+        "    .reset_index()\n",
+        ")\n",
+        "\n",
+        "demand_hourly.to_csv(\n",
+        "    f\"{OUT}/SA_Dispatch_Demand_hourly.csv\",\n",
+        "    index=False\n",
+        ")\n",
+        "\n",
+        "print(demand_hourly.head())\n",
+        "print(\"Rows:\", len(demand_hourly))"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "IxybR00uHyzK",
+        "outputId": "31e1476a-68aa-43cd-ad9a-9c206df9d343"
+      },
+      "execution_count": 3,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "  REGIONID      SETTLEMENTDATE  TOTALDEMAND\n",
+            "0      SA1 2022-01-01 01:00:00  1697.952500\n",
+            "1      SA1 2022-01-01 02:00:00  1558.353333\n",
+            "2      SA1 2022-01-01 03:00:00  1472.105833\n",
+            "3      SA1 2022-01-01 04:00:00  1416.353333\n",
+            "4      SA1 2022-01-01 05:00:00  1388.032500\n",
+            "Rows: 40896\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "dispatch_units = dynamic_data_compiler(\n",
+        "    START, END,\n",
+        "    \"DISPATCHLOAD\",\n",
+        "    CACHE,\n",
+        "    select_columns=[\n",
+        "        \"SETTLEMENTDATE\",\n",
+        "        \"DUID\",\n",
+        "        \"INTERVENTION\"\n",
+        "    ],\n",
+        "    filter_cols=[\"INTERVENTION\"],\n",
+        "    filter_values=([0],),\n",
+        "    fformat=\"csv\",\n",
+        "    keep_csv=True\n",
+        ")\n",
+        "\n",
+        "duid_list = (\n",
+        "    dispatch_units[[\"DUID\"]]\n",
+        "    .dropna()\n",
+        "    .drop_duplicates()\n",
+        "    .sort_values(\"DUID\")\n",
+        ")\n",
+        "\n",
+        "duid_list.to_csv(\n",
+        "    f\"{OUT}/AEMO_DUID_List.csv\",\n",
+        "    index=False\n",
+        ")\n",
+        "\n",
+        "print(duid_list.head(20))\n",
+        "print(\"Unique DUIDs:\", len(duid_list))"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 356
+        },
+        "id": "BQV-D9LaKDKs",
+        "outputId": "8da4d100-7708-4b11-e38a-222b0f50755a"
+      },
+      "execution_count": 5,
+      "outputs": [
+        {
+          "output_type": "error",
+          "ename": "KeyboardInterrupt",
+          "evalue": "",
+          "traceback": [
+            "\u001b[0;31m---------------------------------------------------------------------------\u001b[0m",
+            "\u001b[0;31mKeyboardInterrupt\u001b[0m                         Traceback (most recent call last)",
+            "\u001b[0;32m/tmp/ipykernel_427/3426856945.py\u001b[0m in \u001b[0;36m<cell line: 0>\u001b[0;34m()\u001b[0m\n\u001b[0;32m----> 1\u001b[0;31m dispatch_units = dynamic_data_compiler(\n\u001b[0m\u001b[1;32m      2\u001b[0m     \u001b[0mSTART\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mEND\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m      3\u001b[0m     \u001b[0;34m\"DISPATCHLOAD\"\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m      4\u001b[0m     \u001b[0mCACHE\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m      5\u001b[0m     select_columns=[\n",
+            "\u001b[0;32m/usr/local/lib/python3.13/dist-packages/nemosis/data_fetch_methods.py\u001b[0m in \u001b[0;36mdynamic_data_compiler\u001b[0;34m(start_time, end_time, table_name, raw_data_location, select_columns, filter_cols, filter_values, fformat, keep_csv, parse_data_types, rebuild, **kwargs)\u001b[0m\n\u001b[1;32m     98\u001b[0m     \u001b[0mend_time\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0m_datetime\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mstrptime\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mend_time\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0;34m\"%Y/%m/%d %H:%M:%S\"\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     99\u001b[0m     \u001b[0mstart_search\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0m_datetime\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mstrptime\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mstart_search\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0;34m\"%Y/%m/%d %H:%M:%S\"\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m--> 100\u001b[0;31m     data_tables = _dynamic_data_fetch_loop(\n\u001b[0m\u001b[1;32m    101\u001b[0m         \u001b[0mstart_search\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    102\u001b[0m         \u001b[0mstart_time\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/local/lib/python3.13/dist-packages/nemosis/data_fetch_methods.py\u001b[0m in \u001b[0;36m_dynamic_data_fetch_loop\u001b[0;34m(start_search, start_time, end_time, table_name, raw_data_location, select_columns, date_filter, fformat, keep_csv, caching_mode, rebuild, write_kwargs)\u001b[0m\n\u001b[1;32m    563\u001b[0m                 \u001b[0m_glob\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mglob\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mfull_filename\u001b[0m\u001b[0;34m)\u001b[0m \u001b[0;32mor\u001b[0m \u001b[0m_glob\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mglob\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mpath_and_name\u001b[0m \u001b[0;34m+\u001b[0m \u001b[0;34m\".[cC][sS][vV]\"\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    564\u001b[0m             ) or (not _glob.glob(path_and_name + \".[cC][sS][vV]\") and rebuild):\n\u001b[0;32m--> 565\u001b[0;31m                 _download_data(\n\u001b[0m\u001b[1;32m    566\u001b[0m                     \u001b[0mtable_name\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    567\u001b[0m                     \u001b[0mtable_type\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/local/lib/python3.13/dist-packages/nemosis/data_fetch_methods.py\u001b[0m in \u001b[0;36m_download_data\u001b[0;34m(table_name, table_type, filename_stub, day, month, year, chunk, index, raw_data_location)\u001b[0m\n\u001b[1;32m    791\u001b[0m             )\n\u001b[1;32m    792\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m--> 793\u001b[0;31m     _processing_info_maps.downloader[table_type](\n\u001b[0m\u001b[1;32m    794\u001b[0m         \u001b[0myear\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mmonth\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mday\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mchunk\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mindex\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mfilename_stub\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mraw_data_location\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    795\u001b[0m     )\n",
+            "\u001b[0;32m/usr/local/lib/python3.13/dist-packages/nemosis/downloader.py\u001b[0m in \u001b[0;36mrun\u001b[0;34m(year, month, day, chunk, index, filename_stub, down_load_to)\u001b[0m\n\u001b[1;32m     30\u001b[0m     \u001b[0;31m# Perform the download, unzipping saving of the file\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     31\u001b[0m     \u001b[0;32mtry\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m---> 32\u001b[0;31m         \u001b[0mdownload_unzip_csv\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0murl_formatted\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mdown_load_to\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m     33\u001b[0m     \u001b[0;32mexcept\u001b[0m \u001b[0mException\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     34\u001b[0m         \u001b[0;32mif\u001b[0m \u001b[0mchunk\u001b[0m \u001b[0;34m==\u001b[0m \u001b[0;36m1\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/local/lib/python3.13/dist-packages/nemosis/downloader.py\u001b[0m in \u001b[0;36mdownload_unzip_csv\u001b[0;34m(url, down_load_to)\u001b[0m\n\u001b[1;32m    256\u001b[0m     \u001b[0mr\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mrequests\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mget\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0murl\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mheaders\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0mUSR_AGENT_HEADER\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    257\u001b[0m     \u001b[0mz\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mzipfile\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mZipFile\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mio\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mBytesIO\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mr\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mcontent\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m--> 258\u001b[0;31m     \u001b[0mz\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mextractall\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mdown_load_to\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m    259\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    260\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/lib/python3.13/zipfile/__init__.py\u001b[0m in \u001b[0;36mextractall\u001b[0;34m(self, path, members, pwd)\u001b[0m\n\u001b[1;32m   1830\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m   1831\u001b[0m         \u001b[0;32mfor\u001b[0m \u001b[0mzipinfo\u001b[0m \u001b[0;32min\u001b[0m \u001b[0mmembers\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m-> 1832\u001b[0;31m             \u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0m_extract_member\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mzipinfo\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mpath\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mpwd\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m   1833\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m   1834\u001b[0m     \u001b[0;34m@\u001b[0m\u001b[0mclassmethod\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/lib/python3.13/zipfile/__init__.py\u001b[0m in \u001b[0;36m_extract_member\u001b[0;34m(self, member, targetpath, pwd)\u001b[0m\n\u001b[1;32m   1902\u001b[0m         \u001b[0;32mwith\u001b[0m \u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mopen\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mmember\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mpwd\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0mpwd\u001b[0m\u001b[0;34m)\u001b[0m \u001b[0;32mas\u001b[0m \u001b[0msource\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;31m \u001b[0m\u001b[0;31m\\\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m   1903\u001b[0m              \u001b[0mopen\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mtargetpath\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0;34m\"wb\"\u001b[0m\u001b[0;34m)\u001b[0m \u001b[0;32mas\u001b[0m \u001b[0mtarget\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m-> 1904\u001b[0;31m             \u001b[0mshutil\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mcopyfileobj\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0msource\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mtarget\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m   1905\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m   1906\u001b[0m         \u001b[0;32mreturn\u001b[0m \u001b[0mtargetpath\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;32m/usr/lib/python3.13/shutil.py\u001b[0m in \u001b[0;36mcopyfileobj\u001b[0;34m(fsrc, fdst, length)\u001b[0m\n\u001b[1;32m    202\u001b[0m     \u001b[0mfdst_write\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mfdst\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mwrite\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    203\u001b[0m     \u001b[0;32mwhile\u001b[0m \u001b[0mbuf\u001b[0m \u001b[0;34m:=\u001b[0m \u001b[0mfsrc_read\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mlength\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m--> 204\u001b[0;31m         \u001b[0mfdst_write\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mbuf\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m    205\u001b[0m \u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m    206\u001b[0m \u001b[0;32mdef\u001b[0m \u001b[0m_samefile\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0msrc\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mdst\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+            "\u001b[0;31mKeyboardInterrupt\u001b[0m: "
+          ]
+        }
+      ]
+    }
+  ]
+}
